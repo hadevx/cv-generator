@@ -1,0 +1,17 @@
+{
+  "name": "CV Generator",
+  "short_name": "CV Generator",
+  "description": "Free online CV and resume builder with live preview and PDF download.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f4f6",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

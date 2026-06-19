@@ -1,0 +1,44 @@
+{
+  "name": "cv-generator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n client,server -c cyan,green \"vite\" \"nodemon server/index.js\"",
+    "client": "vite",
+    "server": "nodemon server/index.js",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "db:shell": "mongosh cv_generator"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^10.0.3",
+    "nodemon": "^3.1.14",
+    "tailwindcss": "^4.3.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.21.0",
+    "mongoose": "^9.7.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-to-print": "^3.3.0"
+  }
+}
