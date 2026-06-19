@@ -1,0 +1,297 @@
+================================================================
+  DEPLOYING CV GENERATOR ON A VPS WITH COOLIFY
+================================================================
+
+OVERVIEW
+--------
+This guide deploys the CV Generator as a single Docker container
+that serves both the Express API and the built React frontend.
+MongoDB runs as a separate service inside Coolify.
+
+Architecture on the VPS:
+  [Coolify reverse proxy (Traefik)]
+         |
+  [cv-generator container :4000]   <-->   [MongoDB container :27017]
+
+----------------------------------------------------------------
+PART 1 – PREPARE THE PROJECT
+----------------------------------------------------------------
+
+STEP 1: Add a Dockerfile to the project root
+---------------------------------------------
+Create a file called "Dockerfile" in the root of the project
+with the following content:
+
+-------- Dockerfile --------
+# Stage 1: build the React frontend
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: production image
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy backend source
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY server ./server
+COPY .env.example .env.example
+
+# Copy built frontend from stage 1
+COPY --from=builder /app/dist ./dist
+
+EXPOSE 4000
+CMD ["node", "server/index.js"]
+----------------------------
+
+
+STEP 2: Update the Express server to serve the frontend
+-------------------------------------------------------
+Open server/index.js and add these lines AFTER the API routes
+and BEFORE the error handler:
+
+-------- add to server/index.js --------
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+import { existsSync } from 'fs'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const distPath = join(__dirname, '../dist')
+
+// Serve built React app in production
+if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
+  const { default: serveStatic } = await import('serve-static')
+  app.use(serveStatic(distPath))
+  app.get('*', (_req, res) => {
+    res.sendFile(join(distPath, 'index.html'))
+  })
+}
+----------------------------------------
+
+Then install the serve-static package:
+  npm install serve-static
+
+
+STEP 3: Add a .env.example file
+--------------------------------
+Create ".env.example" in the project root (do NOT commit real secrets):
+
+-------- .env.example --------
+MONGODB_URI=mongodb://mongo:27017/cv_generator
+JWT_SECRET=replace_with_a_long_random_secret_min_32_chars
+PORT=4000
+NODE_ENV=production
+------------------------------
+
+Note: The hostname is "mongo" (not localhost) because Docker
+containers in the same Coolify network reach each other by
+service name.
+
+
+STEP 4: Add a .dockerignore file
+---------------------------------
+Create ".dockerignore" in the project root:
+
+-------- .dockerignore --------
+node_modules
+dist
+.env
+.git
+.gitignore
+README.md
+DEPLOY_COOLIFY.txt
+------------------------------
+
+
+STEP 5: Push everything to GitHub/GitLab
+-----------------------------------------
+  git add Dockerfile .dockerignore .env.example server/index.js
+  git commit -m "add production Docker setup"
+  git push
+
+
+----------------------------------------------------------------
+PART 2 – SET UP THE VPS
+----------------------------------------------------------------
+
+Minimum VPS specs:
+  - 1 vCPU, 2 GB RAM, 20 GB SSD
+  - Ubuntu 22.04 or Debian 12 (recommended)
+  - A domain name pointed at the VPS IP (A record)
+
+SSH into your VPS as root (or a sudo user):
+  ssh root@YOUR_VPS_IP
+
+
+STEP 6: Install Coolify
+-------------------------
+Run the official one-line installer:
+
+  curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+
+The installer:
+  - Installs Docker and Docker Compose
+  - Starts Coolify on port 8000
+  - Takes 2-5 minutes
+
+After it finishes, open your browser:
+  http://YOUR_VPS_IP:8000
+
+Complete the initial setup wizard:
+  1. Create your admin account (email + password)
+  2. Configure the server (click "localhost" — this is the VPS itself)
+  3. Coolify will validate Docker access
+
+
+----------------------------------------------------------------
+PART 3 – CREATE RESOURCES IN COOLIFY
+----------------------------------------------------------------
+
+STEP 7: Add a MongoDB database
+--------------------------------
+  1. In Coolify, go to: Projects → New Project → "cv-generator"
+  2. Inside the project, click "Add Resource"
+  3. Choose: Database → MongoDB
+  4. Settings:
+       Name:          mongo
+       Version:       7.0 (or latest)
+       DB Name:       cv_generator
+       Username:      (leave default or set one)
+       Password:      (generate a strong password — SAVE THIS)
+  5. Click "Create"
+  6. Start the database (toggle the switch)
+
+Once running, copy the Internal Connection URL shown — it looks like:
+  mongodb://USER:PASSWORD@mongo:27017/cv_generator
+
+
+STEP 8: Deploy the application
+--------------------------------
+  1. In the same project, click "Add Resource"
+  2. Choose: Application
+  3. Choose: GitHub / GitLab (connect your account if prompted)
+  4. Select your cv-generator repository and the main branch
+  5. Build Pack: Dockerfile (Coolify should detect it automatically)
+  6. Settings:
+       Name:            cv-generator
+       Port:            4000
+       Domains:         https://yourcvdomain.com  (your real domain)
+
+  7. Click "Environment Variables" and add:
+       MONGODB_URI   = (paste the Internal Connection URL from Step 7)
+       JWT_SECRET    = (generate: openssl rand -base64 48)
+       PORT          = 4000
+       NODE_ENV      = production
+
+  8. Click "Deploy"
+
+Coolify will:
+  - Clone your repository
+  - Build the Docker image (frontend build + backend)
+  - Start the container
+  - Provision a free Let's Encrypt SSL certificate for your domain
+  - Configure the Traefik reverse proxy automatically
+
+Build takes about 2-4 minutes. Watch the live build logs in the
+Deployments tab.
+
+
+----------------------------------------------------------------
+PART 4 – VERIFY THE DEPLOYMENT
+----------------------------------------------------------------
+
+STEP 9: Check everything is working
+-------------------------------------
+  1. Open https://yourcvdomain.com — the app should load
+  2. Try registering an account
+  3. Create a CV and click "Save"
+  4. Refresh the page — your CV should still be there
+  5. Test PDF download
+
+Health check endpoint (returns {"ok":true} if server is up):
+  https://yourcvdomain.com/api/health
+
+
+----------------------------------------------------------------
+PART 5 – ONGOING OPERATIONS
+----------------------------------------------------------------
+
+Redeploy after a git push
+--------------------------
+Option A (automatic): In Coolify app settings, enable
+  "Auto Deploy on Push" — Coolify adds a webhook to your repo
+  and redeploys on every push to main.
+
+Option B (manual): Go to Deployments → click "Redeploy".
+
+
+View logs
+----------
+  Coolify → your app → Logs tab
+  Coolify → mongo → Logs tab
+
+
+MongoDB backups
+----------------
+  In Coolify, go to your MongoDB resource → Backups.
+  Enable scheduled backups (daily recommended).
+  You can also run a manual backup at any time.
+
+
+Update Coolify itself
+----------------------
+  ssh root@YOUR_VPS_IP
+  curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+  (safe to re-run — it updates in place)
+
+
+----------------------------------------------------------------
+PART 6 – TROUBLESHOOTING
+----------------------------------------------------------------
+
+App crashes on start
+---------------------
+  - Check Logs tab in Coolify for the error message
+  - Most common cause: missing or wrong MONGODB_URI env var
+  - Confirm MongoDB container is running (green status)
+  - Confirm the Internal URL uses the service name "mongo",
+    not "localhost"
+
+SSL certificate not issued
+---------------------------
+  - Your domain's A record must point to the VPS IP BEFORE deploy
+  - Port 80 and 443 must be open in your VPS firewall:
+      ufw allow 80
+      ufw allow 443
+      ufw allow 8000   # Coolify dashboard
+      ufw enable
+
+Build fails
+------------
+  - Check that Dockerfile is in the repo root
+  - Check that .dockerignore doesn't exclude required files
+  - Run locally to verify: docker build -t cv-gen .
+
+Cannot connect to MongoDB
+--------------------------
+  - The MONGODB_URI must use the internal hostname ("mongo")
+    not "localhost" — localhost inside a container refers to
+    the container itself, not the MongoDB container
+  - Both services must be in the same Coolify project/network
+
+
+----------------------------------------------------------------
+QUICK REFERENCE
+----------------------------------------------------------------
+
+Coolify dashboard:     http://YOUR_VPS_IP:8000
+App URL:               https://yourcvdomain.com
+Health check:          https://yourcvdomain.com/api/health
+SSH to VPS:            ssh root@YOUR_VPS_IP
+Coolify docs:          https://coolify.io/docs
+================================================================
